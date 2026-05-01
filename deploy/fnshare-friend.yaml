@@ -1,0 +1,50 @@
+# fnshare —— 朋友圈分布式存储
+# 部署到飞牛 NAS：参见同目录 INSTALL-FRIEND.md
+#
+# 这个 compose 文件可以原样发给朋友，不需要任何镜像 tar 文件 ——
+# Docker 会自动从 Docker Hub 拉 mn4940128/fnshare:latest。
+
+services:
+  fnshare:
+    image: mn4940128/fnshare:latest
+    container_name: fnshare
+    restart: unless-stopped
+    network_mode: host
+
+    # FUSE 挂载需要 SYS_ADMIN cap + /dev/fuse 设备，这样飞牛影视等本机
+    # 应用就能读 fnshare 的统一资源库目录
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    security_opt:
+      - apparmor:unconfined
+
+    volumes:
+      - type: bind
+        source: /vol1/@appdata/fnshare/data
+        target: /data
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /vol1/@appdata/fnshare/library
+        target: /mnt/fnshare
+        bind:
+          create_host_path: true
+          propagation: rshared
+
+    environment:
+      FNSHARE_DATA: /data
+      FNSHARE_MOUNT: /mnt/fnshare
+      # ↓↓↓ 朋友安装时只需要改这两行 ↓↓↓
+      FNSHARE_NICKNAME: "请改成你自己的昵称"
+      FNSHARE_QUOTA_GB: "100"
+
+    # 容器首次启动会自动 `fnshare init` 一次（生成节点身份），之后正常 daemon
+    entrypoint: ["/sbin/tini", "--", "/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -f /data/config.yaml ]; then
+          fnshare init --nickname "$$FNSHARE_NICKNAME" --contribute-gb "$$FNSHARE_QUOTA_GB"
+        fi
+        exec fnshare daemon
