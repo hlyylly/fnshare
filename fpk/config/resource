@@ -1,0 +1,15 @@
+{
+    "port-config": {
+        "protocol-file": "fnshare.sc"
+    },
+    "data-share": {
+        "shares": [
+            {
+                "name": "fnshare",
+                "permission": {
+                    "rw": ["fnshare"]
+                }
+            }
+        ]
+    }
+}

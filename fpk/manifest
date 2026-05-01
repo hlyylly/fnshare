@@ -1,0 +1,15 @@
+appname               = fnshare
+version               = 0.1.0
+display_name          = fnshare
+platform              = x86
+maintainer            = fnshare project
+maintainer_url        = https://github.com/fnshare/fnshare
+distributor           = local
+distributor_url       = https://github.com/fnshare/fnshare
+desktop_uidir         = ui
+desktop_applaunchname = fnshare.Application
+service_port          = 4101
+checkport             = false
+desc                  = 朋友圈式分布式存储 — 多人贡献空间组成统一资源库，端到端加密，FUSE 挂载可被飞牛影视等应用直读
+source                = thirdparty
+checksum              =

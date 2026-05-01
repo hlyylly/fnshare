@@ -1,0 +1,11 @@
+.git
+.gitignore
+.idea
+.vscode
+*.md
+deploy/
+scripts/
+**/*_test.go
+
+# Keep web/ — it's needed for go:embed in internal/api/static.go.
+# (No need to explicitly list it; just don't ignore internal/.)

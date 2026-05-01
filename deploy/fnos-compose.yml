@@ -1,0 +1,56 @@
+# fnshare for fnOS — paste this into 「Docker → Compose」 on your NAS,
+# or save as docker-compose.yml and run `docker compose up -d`.
+#
+# Defaults assume:
+#   - storage pool mounted at /vol1 (fnOS default)
+#   - fnshare data at /vol1/fnshare/data
+#   - the unified resource library will appear at /vol1/fnshare/library
+#     on the NAS host — point 飞牛影视 / Plex / Jellyfin at it like any
+#     normal media folder
+#   - libp2p ports 4001 TCP/UDP open in your router (or accessible via IPv6)
+#   - Web UI at http://<your-nas-lan-ip>:4101
+#
+# host networking lets libp2p see real IPs and IPv6/DDNS work end-to-end.
+
+services:
+  fnshare:
+    image: fnshare:latest
+    container_name: fnshare
+    restart: unless-stopped
+    network_mode: host
+
+    # FUSE: lets fnshare expose its unified library as a normal directory
+    # so other apps on the NAS (飞牛影视 etc.) can read it directly.
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    security_opt:
+      - apparmor:unconfined
+
+    volumes:
+      # Persistent fnshare state (BadgerDB, blockstore, identity).
+      - /vol1/fnshare/data:/data
+
+      # The mountpoint MUST be a bind mount with rshared/rslave propagation
+      # so the FUSE mount inside the container becomes visible on the host.
+      # Without this, the mount stays trapped inside the container and
+      # 飞牛影视 can't see anything.
+      - type: bind
+        source: /vol1/fnshare/library
+        target: /mnt/fnshare
+        bind:
+          propagation: rshared
+
+    environment:
+      FNSHARE_DATA: /data
+      # Tell the daemon where to mount the FUSE filesystem (inside the
+      # container; it surfaces on the host at /vol1/fnshare/library).
+      FNSHARE_MOUNT: /mnt/fnshare
+      # Heartbeat: 30s default is fine. Override only if you want faster
+      # offline detection, e.g. FNSHARE_HEARTBEAT_SECONDS=10.
+
+    # Ports below are documentation only — host networking already binds
+    # them on the host directly:
+    #   4001/tcp + 4001/udp : libp2p (TCP, QUIC over UDP)
+    #   4101/tcp            : Web UI + local API

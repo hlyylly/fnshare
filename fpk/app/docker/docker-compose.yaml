@@ -1,0 +1,60 @@
+# fnshare docker stack — fnOS auto-runs `docker compose up -d` against
+# this file (declared in config/resource's docker-project field).
+#
+# Path interpolation uses fnOS-injected env vars directly (NO custom .env
+# file — fnOS's compose runner doesn't read it). Available vars:
+#   ${TRIM_PKGVAR}         — package var dir (e.g. /vol1/@appdata/fnshare/var)
+#   ${TRIM_SERVICE_PORT}   — declared service port from manifest (4101)
+#   ${TRIM_UID}/${TRIM_GID}— user/group running the package
+#   ${DOCKER_MIRROR}       — optional registry mirror prefix (we ship the
+#                            image inline so this doesn't matter)
+#
+# host networking so libp2p (TCP+QUIC on 4001) sees real host interfaces —
+# bridge NAT would break IPv6 + DDNS reachability between friends' NASes.
+
+services:
+  fnshare:
+    image: fnshare:latest
+    # CRITICAL: never try to pull from a registry. Our image is bundled
+    # in the .fpk and loaded at install time by cmd/service-setup. Without
+    # this, fnOS's `docker compose pull` fails when there's no internet
+    # to docker.io (or, just as bad, pulls a *different* fnshare:latest
+    # from Docker Hub if one happens to exist).
+    pull_policy: never
+    container_name: fnshare
+    restart: unless-stopped
+    network_mode: host
+
+    # FUSE mount needs SYS_ADMIN cap + /dev/fuse. apparmor:unconfined is
+    # required on Debian-derived hosts (ignored elsewhere).
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    security_opt:
+      - apparmor:unconfined
+
+    volumes:
+      # Daemon's private state (BadgerDB, identity, blockstore, spool).
+      # Short-syntax bind auto-creates the host path. Belt: service_preinst
+      # also mkdirs it.
+      - type: bind
+        source: ${TRIM_PKGVAR:?TRIM_PKGVAR_required}/data
+        target: /data
+        bind:
+          create_host_path: true
+      # FUSE mount surfaced under TRIM_PKGVAR so it lives on the data
+      # volume; rshared so the mount is visible to host applications
+      # (飞牛影视, Plex, file managers). create_host_path is REQUIRED with
+      # long syntax — without it docker rejects with "bind source path
+      # does not exist".
+      - type: bind
+        source: ${TRIM_PKGVAR:?TRIM_PKGVAR_required}/library
+        target: /mnt/fnshare
+        bind:
+          create_host_path: true
+          propagation: rshared
+
+    environment:
+      FNSHARE_DATA: /data
+      FNSHARE_MOUNT: /mnt/fnshare

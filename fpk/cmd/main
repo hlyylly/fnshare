@@ -1,0 +1,103 @@
+#!/bin/bash
+# fnshare lifecycle entry — owns docker compose start/stop directly.
+#
+# We DELIBERATELY do not use config/resource's docker-project field, because
+# fnOS appears to run `docker compose pull/up` against that field before
+# our install_init has a chance to load the bundled image. By owning the
+# compose lifecycle here, we control the order:
+#
+#     load image  →  mkdir bind targets  →  docker compose up -d
+#
+# all in one script, runs as root via the fnOS framework's main hook.
+#
+# app.tgz extracts to ${TRIM_APPDEST}/, so:
+#     docker-compose.yaml = ${TRIM_APPDEST}/docker/docker-compose.yaml
+#     image tarball       = ${TRIM_APPDEST}/images/fnshare-image.tar.gz
+
+APPDEST="${TRIM_APPDEST:-$(cd "$(dirname "$0")/.." && pwd)}"
+COMPOSE_FILE="${APPDEST}/docker/docker-compose.yaml"
+IMAGE_TGZ="${APPDEST}/images/fnshare-image.tar.gz"
+LOG_FILE="${TRIM_PKGVAR:-/tmp}/fnshare-main.log"
+
+DATA_DIR="${TRIM_PKGVAR:-/tmp/fnshare}/data"
+LIBRARY_DIR="${TRIM_PKGVAR:-/tmp/fnshare}/library"
+
+log() { echo "[$(date '+%F %T')] $*" >> "${LOG_FILE}" 2>/dev/null; }
+
+ensure_image() {
+    if docker image inspect fnshare:latest >/dev/null 2>&1; then
+        return 0
+    fi
+    if [ ! -f "${IMAGE_TGZ}" ]; then
+        log "ERROR: image tarball missing at ${IMAGE_TGZ}"
+        return 1
+    fi
+    log "loading fnshare image from ${IMAGE_TGZ}…"
+    if ! gunzip -c "${IMAGE_TGZ}" | docker load >> "${LOG_FILE}" 2>&1; then
+        log "ERROR: docker load failed"
+        return 1
+    fi
+    if ! docker image inspect fnshare:latest >/dev/null 2>&1; then
+        SRC=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^fnshare:' | head -1)
+        if [ -n "${SRC}" ]; then
+            docker tag "${SRC}" fnshare:latest >> "${LOG_FILE}" 2>&1
+        else
+            log "ERROR: load completed but no fnshare:* image present"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+ensure_dirs() {
+    mkdir -p "${DATA_DIR}" "${LIBRARY_DIR}" 2>/dev/null
+    chmod 755 "${DATA_DIR}" "${LIBRARY_DIR}" 2>/dev/null || true
+}
+
+is_running() {
+    docker inspect -f '{{.State.Running}}' fnshare 2>/dev/null | grep -q true
+}
+
+case $1 in
+    start)
+        log "===== start ====="
+        if is_running; then
+            log "fnshare already running"
+            exit 0
+        fi
+        ensure_image  || { log "image setup failed"; exit 1; }
+        ensure_dirs
+        log "running: docker compose -f ${COMPOSE_FILE} up -d"
+        if cd "$(dirname "${COMPOSE_FILE}")" && docker compose up -d >> "${LOG_FILE}" 2>&1; then
+            log "start ok"
+            exit 0
+        else
+            log "ERROR: docker compose up failed"
+            exit 1
+        fi
+        ;;
+    stop)
+        log "===== stop ====="
+        if [ -f "${COMPOSE_FILE}" ]; then
+            cd "$(dirname "${COMPOSE_FILE}")" && docker compose down >> "${LOG_FILE}" 2>&1
+        fi
+        exit 0
+        ;;
+    status)
+        if is_running; then
+            echo "fnshare is running"
+            exit 0
+        else
+            echo "fnshare is not running"
+            exit 3
+        fi
+        ;;
+    log)
+        LINES="${2:-100}"
+        docker logs --tail "${LINES}" fnshare 2>&1
+        ;;
+    *)
+        echo "usage: main start|stop|status|log [lines]"
+        exit 1
+        ;;
+esac

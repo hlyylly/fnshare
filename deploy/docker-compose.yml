@@ -1,0 +1,87 @@
+# Local 3-node test bed.
+#
+# Simulates 3 fnOS hosts on a single Docker network. Each node has a stable
+# DNS name (node-a, node-b, node-c) the others can use as bootstrap target.
+#
+# Quick run:
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#   docker compose exec node-a fnshare init --nickname alice --contribute-gb 100
+#   docker compose exec node-a fnshare group-create --name "test-circle"
+#   docker compose exec node-a fnshare invite-create \
+#     --bootstrap "/dns4/node-a/tcp/4001/p2p/$(docker compose exec node-a fnshare status | grep peer | awk '{print $4}')"
+#   # paste the printed link into:
+#   docker compose exec node-b fnshare init --nickname bob --contribute-gb 100
+#   docker compose exec node-b fnshare group-join "<paste-link>"
+
+services:
+  node-a:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: fnshare:dev
+    hostname: node-a
+    container_name: fnshare-a
+    networks:
+      fnshare-net:
+        aliases: [node-a]
+    ports:
+      - "4101:4101/tcp"   # Web UI on http://localhost:4101
+    volumes:
+      - node-a-data:/data
+    # FUSE mount needs capability + device access. apparmor:unconfined
+    # is needed on Ubuntu/Debian hosts; harmless on macOS via OrbStack.
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    security_opt:
+      - apparmor:unconfined
+    environment:
+      FNSHARE_HEARTBEAT_SECONDS: "5"
+      FNSHARE_MOUNT: "/mnt/fnshare"   # FUSE mountpoint inside container
+    # Keep PID 1 alive even if no `daemon` is running yet.
+    entrypoint: ["/sbin/tini", "--"]
+    command: ["sh", "-c", "fnshare daemon || sleep infinity"]
+
+  node-b:
+    image: fnshare:dev
+    hostname: node-b
+    container_name: fnshare-b
+    networks:
+      fnshare-net:
+        aliases: [node-b]
+    ports:
+      - "4102:4101/tcp"
+    volumes:
+      - node-b-data:/data
+    environment:
+      FNSHARE_HEARTBEAT_SECONDS: "5"
+    entrypoint: ["/sbin/tini", "--"]
+    command: ["sh", "-c", "fnshare daemon || sleep infinity"]
+    depends_on: [node-a]
+
+  node-c:
+    image: fnshare:dev
+    hostname: node-c
+    container_name: fnshare-c
+    networks:
+      fnshare-net:
+        aliases: [node-c]
+    ports:
+      - "4103:4101/tcp"
+    volumes:
+      - node-c-data:/data
+    environment:
+      FNSHARE_HEARTBEAT_SECONDS: "5"
+    entrypoint: ["/sbin/tini", "--"]
+    command: ["sh", "-c", "fnshare daemon || sleep infinity"]
+    depends_on: [node-a]
+
+volumes:
+  node-a-data: {}
+  node-b-data: {}
+  node-c-data: {}
+
+networks:
+  fnshare-net:
+    driver: bridge

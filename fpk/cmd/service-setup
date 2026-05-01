@@ -1,0 +1,26 @@
+#!/bin/bash
+# fnshare-specific install hooks. We don't rely on these for the heavy
+# lifting (image load + compose up are owned by cmd/main, since the
+# framework's docker-project auto-management has unreliable ordering vs.
+# our hooks). These are kept as belt-and-suspenders only.
+
+IMAGE_TGZ="${TRIM_APPDEST}/images/fnshare-image.tar.gz"
+
+# Pre-load the image if we get here before main start. Idempotent.
+service_preinst() {
+    if ! docker image inspect fnshare:latest >/dev/null 2>&1 && [ -f "${IMAGE_TGZ}" ]; then
+        install_log "preinst: loading fnshare image…"
+        gunzip -c "${IMAGE_TGZ}" | docker load 2>&1 | install_log || true
+    fi
+    mkdir -p "${TRIM_PKGVAR}/data" "${TRIM_PKGVAR}/library" 2>/dev/null || true
+}
+
+service_postinst() {
+    # Same as preinst — repeats are harmless.
+    service_preinst
+}
+
+service_postuninst() {
+    docker rm -f fnshare 2>/dev/null || true
+    docker rmi fnshare:latest 2>/dev/null || true
+}

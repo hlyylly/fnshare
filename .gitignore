@@ -1,0 +1,32 @@
+# build / test artifacts
+/bin/
+/out/
+*.test
+*.prof
+
+# OS / editor cruft
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Node
+node_modules/
+
+# Go: keep go.sum out for now (regenerated reproducibly via `go mod tidy`)
+go.sum
+
+# .fpk build artifacts (rebuilt from fpk/ source via build-fpk.sh)
+fpk/*.fpk
+fpk/*.tar
+fpk/*.tar.gz
+
+# Local Docker test data (compose volumes / saved images)
+*.tar
+deploy/data/
+deploy/library/
+
+# Don't accidentally commit any of the host-NAS deployment artifacts
+fnshare-deploy.yaml
+fnshare-image.tar*
+fpk_old/

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>fnshare</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>fnshare</h1>
+    <nav>
+      <a href="#overview" data-tab="overview" class="active">概览</a>
+      <a href="#files"    data-tab="files">资源库</a>
+      <a href="#ledger"   data-tab="ledger">账本</a>
+      <a href="#invite"   data-tab="invite">邀请</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===== overview ===== -->
+    <section id="overview" class="tab active">
+      <h2>本节点</h2>
+      <table class="kv">
+        <tr><th>昵称</th><td id="self-nickname">…</td></tr>
+        <tr><th>Peer ID</th><td id="self-peerid" class="mono">…</td></tr>
+        <tr><th>贡献容量</th><td id="self-quota">…</td></tr>
+        <tr><th>已连接 peers</th><td id="self-connected">…</td></tr>
+      </table>
+
+      <h2>我加入的群组 <span class="muted">(可同时是多个群的群主或成员)</span></h2>
+      <div id="groups-list"></div>
+
+      <h2>建群 / 入群</h2>
+      <div class="dual-form">
+        <form id="create-group-form">
+          <h3>建一个新群（你是群主）</h3>
+          <label>
+            群名
+            <input type="text" id="create-group-name" placeholder="比如：我的朋友圈" required />
+          </label>
+          <button type="submit">建群</button>
+          <span id="create-group-status" class="muted"></span>
+        </form>
+
+        <form id="join-group-form">
+          <h3>用邀请链接加入</h3>
+          <label>
+            邀请链接
+            <input type="text" id="join-group-link" placeholder="fnshare://join#..." required />
+          </label>
+          <button type="submit">加入</button>
+          <span id="join-group-status" class="muted"></span>
+        </form>
+      </div>
+    </section>
+
+    <!-- ===== files ===== -->
+    <section id="files" class="tab">
+      <h2>上传到资源库</h2>
+      <form id="upload-form">
+        <input type="file" id="upload-input" required />
+        <label class="inline">
+          上传到群组：
+          <select id="upload-group" required></select>
+        </label>
+        <label class="inline">
+          <input type="checkbox" id="upload-private" />
+          <span title="勾选后，文件用你的私钥加密，其他人只能存分片不能解密内容">私有（仅我可读）</span>
+        </label>
+        <button type="submit">上传</button>
+        <span id="upload-status" class="muted"></span>
+      </form>
+
+      <h2>统一资源库 <span class="muted">(所有群组的文件汇总展示)</span></h2>
+      <table id="files-table">
+        <thead><tr><th>类型</th><th>群组</th><th>文件名</th><th>大小</th><th>File ID</th><th>所有者</th><th>操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- ===== ledger ===== -->
+    <section id="ledger" class="tab">
+      <h2>本地账本</h2>
+      <p class="muted">从「我」的视角统计与每个 peer 的流量收支。账本是节点级的，不区分群组（同一个朋友可能跨多个群和你协作）。</p>
+      <table id="ledger-table">
+        <thead>
+          <tr>
+            <th>Peer</th>
+            <th title="他们 PUT 给我们 + 我们从他们那 GET">他们贡献</th>
+            <th title="我们 PUT 给他们 + 他们从我们这 GET">我们贡献</th>
+            <th>净额</th>
+            <th>更新时间</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- ===== invite ===== -->
+    <section id="invite" class="tab">
+      <h2>生成邀请链接 <span class="muted">(群主可邀请新成员)</span></h2>
+      <form id="invite-form">
+        <label>
+          邀请到哪个群？
+          <select id="invite-group" required></select>
+        </label>
+        <label>
+          Bootstrap multiaddr（你的 DDNS 域名 + 端口 + Peer ID）
+          <input type="text" id="invite-bootstrap" placeholder="/dns4/your-nas.example.com/tcp/4001/p2p/12D3Koo..." required />
+        </label>
+        <label>
+          有效期（小时）
+          <input type="number" id="invite-ttl" value="72" min="1" />
+        </label>
+        <button type="submit">生成</button>
+      </form>
+      <pre id="invite-output" class="invite-link"></pre>
+    </section>
+  </main>
+
+  <footer>
+    <span class="muted">fnshare M4 · 多群组 · 端到端加密 · 数据每 5s 自动刷新</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
