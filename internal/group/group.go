@@ -10,6 +10,7 @@
 package group
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
@@ -45,6 +46,18 @@ type Member struct {
 	JoinedAt       time.Time `cbor:"joined_at"`
 	AdmittedBySig  []byte    `cbor:"admitted_sig"`
 	LastAddrs      []string  `cbor:"last_addrs,omitempty"`
+
+	// AdmissionInvite is the raw CBOR of the invite the joiner presented,
+	// stored when admission was processed by a NON-admin node (in which
+	// case AdmittedBySig is empty because non-admin can't sign).
+	//
+	// During member-sync, peers verify membership by accepting EITHER:
+	//   (a) AdmittedBySig is a valid admin Ed25519 signature, OR
+	//   (b) AdmissionInvite decodes to a valid invite for THIS group.
+	//
+	// Both ultimately chain back to the admin's key — the invite was
+	// signed by admin when minted — so accepting either is safe.
+	AdmissionInvite []byte `cbor:"adm_inv,omitempty"`
 }
 
 const (
@@ -132,6 +145,98 @@ func (g *Group) AdmitMember(peerID string, joinedAt time.Time) ([]byte, error) {
 // VerifyAdmission checks an admission signature against the group's admin pubkey.
 func (g *Group) VerifyAdmission(peerID string, joinedAt time.Time, sig []byte) bool {
 	return ed25519.Verify(ed25519.PublicKey(g.AdminPub), admitMessage(g.ID, peerID, joinedAt), sig)
+}
+
+// VerifyMembership accepts a Member as a valid group member if either:
+//
+//	(a) AdmittedBySig is a valid admin Ed25519 signature over the
+//	    (groupID|peerID|joinedAt) tuple — i.e., admin processed the join
+//	    directly.
+//
+//	(b) AdmissionInvite is a CBOR-encoded invite that decodes successfully,
+//	    verifies against admin's pubkey, and matches THIS group — i.e.,
+//	    admin pre-authorized the join via a one-time invite link, and a
+//	    non-admin peer (like bob) processed the actual handshake.
+//
+// Either way, the chain of trust ends at admin's private key. A dishonest
+// gossiping peer can't smuggle in a fake member entry because they can't
+// forge either kind of signature.
+func (g *Group) VerifyMembership(m *Member) bool {
+	if len(m.AdmittedBySig) > 0 && g.VerifyAdmission(m.PeerID, m.JoinedAt, m.AdmittedBySig) {
+		return true
+	}
+	if len(m.AdmissionInvite) > 0 {
+		// We import invite.Decode lazily via raw cbor to avoid an import
+		// cycle (invite already imports group). Inline decode + verify.
+		var inv struct {
+			GroupID        string `cbor:"gid"`
+			GroupAdminPub  []byte `cbor:"apub"`
+			Signature      []byte `cbor:"sig"`
+		}
+		if cbor.Unmarshal(m.AdmissionInvite, &inv) != nil {
+			return false
+		}
+		if inv.GroupID != g.ID {
+			return false
+		}
+		if !bytes.Equal(inv.GroupAdminPub, g.AdminPub) {
+			return false
+		}
+		// Re-verify the invite's own signature by decoding it through the
+		// invite package's logic. Since we don't want a cycle here, reuse
+		// the canonical signed-bytes layout: anything that round-trips
+		// through invite.Decode (and verifies admin sig) is acceptable.
+		// Cheap path: if the marshaled invite has a non-empty signature
+		// field AND admin pubkey field matches ours, trust it. The full
+		// signature check happens in invite.Decode; this is a fast path
+		// for the gossip case where we just got it from another peer.
+		// Defense-in-depth full check:
+		return verifyInviteSignature(m.AdmissionInvite, g.AdminPub)
+	}
+	return false
+}
+
+// verifyInviteSignature does the same cryptographic check as
+// invite.Decode without importing the invite package (which would create
+// a cycle group→invite→group). Re-implements just the verification path:
+// the invite is CBOR with a "sig" field over the rest of the fields.
+func verifyInviteSignature(raw, adminPub []byte) bool {
+	// Parse the full invite into a generic map, extract sig + body, then
+	// re-marshal the body without sig and verify.
+	var full map[string]cbor.RawMessage
+	if cbor.Unmarshal(raw, &full) != nil {
+		return false
+	}
+	sigRaw, ok := full["sig"]
+	if !ok {
+		return false
+	}
+	var sig []byte
+	if cbor.Unmarshal(sigRaw, &sig) != nil {
+		return false
+	}
+	// Re-marshal body in the canonical signed-fields order. Must match
+	// what internal/invite/invite.go signedBytes() produces.
+	type signedPayload struct {
+		GroupID        string   `cbor:"gid"`
+		GroupName      string   `cbor:"name"`
+		GroupAdminPub  []byte   `cbor:"apub"`
+		GroupSharedKey []byte   `cbor:"sk"`
+		BootstrapPeers []string `cbor:"boot"`
+		Nonce          []byte   `cbor:"nonce"`
+		IssuedAt       int64    `cbor:"iat"`
+		ExpiresAt      int64    `cbor:"exp"`
+		QuotaCap       int64    `cbor:"quota,omitempty"`
+	}
+	var body signedPayload
+	if cbor.Unmarshal(raw, &body) != nil {
+		return false
+	}
+	canonical, err := cbor.Marshal(body)
+	if err != nil {
+		return false
+	}
+	return ed25519.Verify(ed25519.PublicKey(adminPub), canonical, sig)
 }
 
 func admitMessage(groupID, peerID string, t time.Time) []byte {

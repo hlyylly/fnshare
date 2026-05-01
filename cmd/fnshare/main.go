@@ -406,6 +406,7 @@ func cmdDaemon() *cobra.Command {
 			go func() {
 				time.Sleep(1 * time.Second)
 				n.BootstrapAllGroups(ctx)
+				n.SyncGroupMembers(ctx)
 				tick := time.NewTicker(5 * time.Second)
 				defer tick.Stop()
 				for {
@@ -414,6 +415,11 @@ func cmdDaemon() *cobra.Command {
 						return
 					case <-tick.C:
 						n.BootstrapAllGroups(ctx)
+						// Member-list gossip: lets admin learn about
+						// members who joined via non-admin peers (e.g.
+						// when admin's IPv6 was unreachable from the
+						// joining node's network at join time).
+						n.SyncGroupMembers(ctx)
 					}
 				}
 			}()
