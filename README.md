@@ -1,93 +1,91 @@
 # fnshare
 
-朋友圈式的分布式存储 —— 给飞牛 fnOS 用户。
+**朋友圈式分布式存储** —— 几个朋友各自贡献一部分硬盘空间，凑成一块更大的私有虚拟磁盘。端到端加密、纠删码冗余、自动 FUSE 挂载，本机任意应用（飞牛影视 / Plex / Jellyfin / 文件管理器…）像扫普通本地目录一样直接读。
 
-几个朋友各自贡献一部分 NAS 容量，凑成一块更大的"虚拟磁盘"。
-资源加密分片，多副本/纠删码冗余存储；私密、可控、不会被平台删档。
+> 不像云盘有版权扫描，不会被平台删档。资源在你和朋友的设备之间 P2P 同步，加密后再分片，谁存了什么、文件名是什么，存储节点都看不到。
 
-> 当前进度：**M8 完成** — 写缓冲（任一朋友 NAS 离线不阻塞上传）+ 私有文件名 owner 端索引。**到这里整个系统已经能在朋友圈里"真用"了**。M9 见 ROADMAP。
->
-> 飞牛安装：
-> - **`.fpk` 应用包**（推荐，单文件 16 MB，docker 镜像内置）：[`fpk/INSTALL.md`](./fpk/INSTALL.md)
-> - **Docker Compose 手动部署**（开发 / 调试）：[`SETUP.md`](./SETUP.md)
+适用任何能跑 Docker 的 Linux 机器：飞牛 fnOS、群晖 DSM 7+、QNAP、Unraid、Proxmox、自建 Debian/Ubuntu/Alpine、树莓派…
 
-## 它解决什么
+[![Docker Hub](https://img.shields.io/badge/Docker_Hub-mn4940128%2Ffnshare-blue)](https://hub.docker.com/r/mn4940128/fnshare)
+[![License](https://img.shields.io/badge/License-MIT-green)](./LICENSE)
 
-- 网盘会删资源 → 自己人之间的私有网络，谁都管不着
-- 单台 NAS 容易丢数据 → 多副本分布在朋友的 NAS 上，硬件故障不丢数据
-- 公网穿透麻烦 → libp2p 自带 IPv6 直连 + UDP 打洞 + relay 兜底
-- 朋友吸血 → 透明账本，每个人贡献/消耗都看得见
+## 特性
 
-## 架构概览
-
-- **拓扑**：全对等 mesh（几十人量级，不需要 tracker / DHT 引入新中心）
-- **身份**：每个节点一对 Ed25519 密钥；群组本身也有一对 Ed25519 密钥（群主控制）
-- **入群**：群主签发邀请链接 → 新节点拿邀请连任意现有成员 → 现成员验证签名后写入本地成员表
-- **网络层**：go-libp2p（TCP + QUIC，IPv4/IPv6，AutoNAT、DCUtR 打洞、Circuit Relay v2）
-- **存储**：BadgerDB 存元数据（M2 起加分片存储）
-
-## 快速开始
-
-### 在飞牛上跑（推荐）
-
-> 飞牛应用中心打包发布前，先用 Docker 部署。
-
-```bash
-# 飞牛 SSH 进去，或者用「Docker Compose」应用粘贴下面内容
-mkdir -p /vol1/fnshare/data
-docker run -d --name fnshare \
-  --restart unless-stopped \
-  -v /vol1/fnshare/data:/data \
-  -p 4001:4001/tcp -p 4001:4001/udp \
-  fnshare:dev   # 暂时本地构建，后续推 Docker Hub
-
-# 初始化身份（昵称 + 贡献 100GB）
-docker exec fnshare fnshare init --nickname alice --contribute-gb 100
-
-# 当群主：建群
-docker exec fnshare fnshare group-create --name "我的朋友圈"
-
-# 生成邀请链接（必须填一个外部可达的多地址，飞牛 DDNS 推荐）
-PEER=$(docker exec fnshare fnshare status | awk '/^node/ {print $NF}' | tr -d '()')
-docker exec fnshare fnshare invite-create \
-  --bootstrap "/dns4/your-nas.example.com/tcp/4001/p2p/${PEER}" \
-  --ttl-hours 72
-# → 输出 fnshare://join#... 微信发给朋友
-
-# 当被邀请方：加入
-docker exec fnshare fnshare init --nickname bob --contribute-gb 100
-docker exec fnshare fnshare group-join "fnshare://join#..."
-
-# 启动后台守护
-docker exec -d fnshare fnshare daemon
-```
-
-### 本地 3 节点冒烟测试
-
-```bash
-./scripts/test-3-nodes.sh
-```
-
-会拉起 3 个容器，跑完整的「建群 → 邀请 → 加入」流程，最后打印每个节点的成员表。
-
-## CLI 命令
-
-| 命令 | 用途 |
+| 模块 | 实现 |
 |---|---|
-| `fnshare init` | 生成节点身份和默认配置 |
-| `fnshare group-create --name <NAME>` | 建群（本节点变成群主） |
-| `fnshare invite-create --bootstrap <multiaddr>` | 群主签发邀请链接 |
-| `fnshare group-join <invite-link>` | 用邀请链接入群 |
-| `fnshare daemon` | 跑后台节点（libp2p + blockstore + HTTP API） |
-| `fnshare status` | 查看本地状态和成员列表 |
-| `fnshare put <file>` | 上传文件，EC 编码后分发到群组成员 |
-| `fnshare get <file-id> <out-path>` | 用 file id 下载，自动从可用 holder 凑齐分片重建 |
-| `fnshare ls` | 列出本节点已知的文件 |
+| 🔒 端到端加密 | AES-256-GCM 内容 + NaCl box 包裹文件密钥 |
+| 🧩 EC 冗余 | Reed-Solomon（默认 2+1，可配；任一节点离线仍能读） |
+| 🌐 P2P | libp2p TCP+QUIC，IPv6 直连，IPv4 NAT 穿透 + DCUtR |
+| 👥 多群组 | 一个节点可同时是 A 群主 + B/C 群成员，文件统一展示 |
+| 🔐 资源分类 | Shared（群内可读）/ Private（仅 owner 可解密） |
+| 📁 FUSE 挂载 | 本机其他应用直接读，无需任何插件 |
+| ⚡ 流式上传 | 4 MiB stripe，RAM 占用与文件大小无关 |
+| 🔁 离线兜底 | 任一朋友设备暂时下线不阻塞上传，恢复后自动补传 |
+| ❤️ 心跳 + 信誉 | 探活 + 离线扣信誉 + lazy repair |
 
-`status / invite-create` 在 daemon 跑着时走 HTTP API；daemon 不在时回退到直接读 DB。
-`put / get / ls` 必须 daemon 在跑（需要 libp2p host 做实际传输）。
+## 快速安装
 
-数据目录默认 `~/.fnshare`，Docker 镜像里是 `/data`。
+任意能跑 Docker 27+ + Compose v2 的 Linux。SSH 上去：
+
+```bash
+INSTALL=/vol1/@appdata/fnshare        # 飞牛默认；群晖用 /volume1/docker/fnshare；自建 Linux 用 /opt/fnshare
+sudo mkdir -p $INSTALL
+sudo curl -L -o $INSTALL/fnshare.yaml \
+  https://github.com/hlyylly/fnshare/raw/main/deploy/fnshare-friend.yaml
+sudo vi $INSTALL/fnshare.yaml         # 改昵称、容量、source 路径
+sudo docker compose -f $INSTALL/fnshare.yaml up -d
+```
+
+浏览器打开 `http://<本机 IP>:4101` 进控制台。镜像自动从 [Docker Hub](https://hub.docker.com/r/mn4940128/fnshare) 拉，无需手工传文件。
+
+完整安装指南：[`deploy/INSTALL-FRIEND.md`](./deploy/INSTALL-FRIEND.md)
+
+## Web UI
+
+| Tab | 干什么 |
+|---|---|
+| **概览** | 节点信息、群组成员表、建群 / 用邀请链接加群 |
+| **文件** | 上传（Shared / Private 模式可选）/ 下载 / 列表 |
+| **账本** | 你和每个 peer 的流量收支（贡献 vs 消耗） |
+| **邀请** | 群主生成 `fnshare://join#...` 链接发给朋友 |
+
+## 让本机其他应用看到资源库
+
+```
+飞牛影视 / Plex / Jellyfin / 文件管理器 → 添加媒体源 → <安装目录>/library
+```
+
+群里任何人上传的视频、照片、文件自动出现，本机应用像扫普通磁盘一样使用。
+
+## 端口
+
+| 端口 | 协议 | 用途 | 公网 |
+|---|---|---|---|
+| 4001 | TCP + UDP | libp2p P2P | **必须**（路由器转发或 IPv6 直连） |
+| 4101 | TCP | Web UI + 本地 API | LAN 即可 |
+
+## 架构
+
+```
+   节点 A  ←→  节点 B  ←→  节点 C  ←→  ……  ←→  节点 N
+                  ⇅
+       libp2p P2P (TCP+QUIC, IPv6 优先)
+                  ⇅
+   每个文件 → AES-256-GCM 加密
+            → Reed-Solomon EC 切片 (k+m)
+            → rendezvous hashing 选址，均匀分担到所有节点
+                  ⇅
+            ┌─── 统一资源库 ───┐
+            │   FUSE 挂载到    │
+            │   本机文件系统    │
+            └─────────┬────────┘
+                      │
+       本机任何应用都能像读普通目录一样读
+                      ⇅
+   飞牛影视 │ Plex │ Jellyfin │ 文件管理器 │ rsync │ ……
+```
+
+每个节点 = 一个 Docker 容器跑 Go 写的 fnshare daemon。节点之间 libp2p 加密 P2P 通信，没有任何中心服务器。
 
 ## 邀请链接格式
 
@@ -95,59 +93,76 @@ docker exec -d fnshare fnshare daemon
 fnshare://join#<base64url(cbor)>
 ```
 
-负载内容（CBOR 编码后签名）：
+CBOR 负载（群主 Ed25519 签名）：群组 ID / 群组共享密钥 / bootstrap 多地址 / nonce / 过期时间 / 配额上限。
 
-```
-gid    群组公钥指纹（hex）
-name   群组显示名
-apub   群组 Ed25519 公钥（32B，离线验证用）
-boot   bootstrap 节点的 multiaddr 列表
-nonce  16 字节随机数（防重放，未来 server 端记账）
-iat    签发时间
-exp    过期时间
-quota  受邀人配额上限（0 = 不限）
-sig    群主私钥对以上字段的 Ed25519 签名
-```
+URL fragment（`#` 后面）不会被中间服务器看到 —— 可以放心通过微信、Telegram 转发。
 
-链接里所有内容放在 URL 的 fragment（`#` 后面），浏览器和反代都不会上传——可以放心通过微信、Telegram 转发。
+## 项目状态
 
-## 网络要求
+| 里程碑 | 内容 | 状态 |
+|---|---|---|
+| M1 | P2P + 邀请加入 | ✅ |
+| M2 | EC 分片 + put/get | ✅ |
+| M3 | Web UI + 本地账本 | ✅ |
+| M4 | 端到端加密 + 多群组 | ✅ |
+| M5 | 心跳 + 信誉 + lazy repair | ✅ |
+| M6 | FUSE 挂载 | ✅ |
+| M7 | 流式 IO + rendezvous 选址 | ✅ |
+| M8 | 写缓冲 + 私有文件名索引 | ✅ |
+| M9 | 配额强制、加权选址、WebSocket | ⏭ |
 
-- **必备**：节点之间至少有一个可达路径
-  - IPv6 直连（推荐，飞牛多数家宽支持）
-  - 或 IPv4 + 端口转发（4001 TCP & UDP）
-  - 或 NAT-NAT 之间靠 libp2p hole punching（DCUtR）+ relay 节点兜底
-- **DDNS**：邀请链接里必须有至少一个外部可达的 multiaddr，飞牛自带的 DDNS 域名最方便
+详细路线图：[`ROADMAP.md`](./ROADMAP.md)
 
-## 路线图
+⚠️ **alpha** —— 数据安全（加密 / EC / 流式 IO）已端到端验证过，但功能仍在迭代。`latest` 可能有不兼容更新，长期部署用 `:0.1.0` 这种固定版本。
 
-- **M1 ✅** — P2P 连通 + 邀请入群（当前）
-- **M2** — 文件分片（Reed-Solomon 6+3 EC）+ 节点间存取协议
-- **M3** — Web UI + 透明账本 + 飞牛 .fnpkg 应用包
-- **M4** — 资源分类（自有 / 共享）+ 端到端加密的 capability 模型
-- **M5** — 离线节点的修复策略（软离线阈值、惰性 repair）
+## 协议版本
+
+| 协议 ID | 用途 |
+|---|---|
+| `/fnshare/join/1.0.0` | 入群握手 |
+| `/fnshare/members/1.0.0` | 成员列表同步 |
+| `/fnshare/blocks/1.0.0` | 分片 + manifest 存取 |
+| `/fnshare/peers/1.0.0` | 节点地址簿交换 |
+| `/fnshare/ping/1.0.0` | 心跳探活 |
 
 ## 项目结构
 
 ```
-cmd/fnshare/         CLI 入口（cobra）
+cmd/fnshare/         Cobra CLI 入口
 internal/
+  api/               HTTP API + 嵌入式 Web UI（go:embed）
+  blockstore/        分片存储（filesystem）
   config/            ~/.fnshare/config.yaml
-  keys/              Ed25519 节点身份
-  group/             群组状态、成员表（持久化到 BadgerDB）
-  invite/            邀请链接编/解码 + 签名
-  node/              libp2p host + /fnshare/join/1.0.0 协议
+  crypto/            AES-GCM + NaCl box
+  ec/                Reed-Solomon
+  file/              put/get + 流式 + StripeCache
+  fuse/              FUSE 文件系统（挂载到本机）
+  group/             群组、成员、bootstrap
+  heartbeat/         心跳探活
+  holders/           rendezvous hashing 选址
+  invite/            邀请链接编/解码
+  keys/              Ed25519 + X25519 双身份
+  ledger/            本地流量账本 + 信誉
+  manifest/          多 stripe 文件清单
+  node/              libp2p host + 各协议 handler
+  repair/            离线触发 lazy repair
+  spool/             写缓冲（holder 离线时本地暂存）
   store/             BadgerDB 封装
-deploy/              docker-compose（3 节点测试）
-scripts/             冒烟测试脚本
+deploy/              docker-compose + 朋友安装文档
+fpk/                 飞牛 .fpk 应用包源（备选安装方式）
+scripts/             各里程碑的端到端冒烟测试
 ```
 
-## 协议版本
+## 自己 build / 改
 
-| 协议 ID | 用途 | 状态 |
-|---|---|---|
-| `/fnshare/join/1.0.0` | 入群握手 | ✅ M1 |
-| `/fnshare/members/1.0.0` | 成员列表全量同步 | ✅ M1 |
-| `/fnshare/blocks/1.0.0` | 分片 + manifest 存取（PUT/GET） | ✅ M2 |
-| `/fnshare/peers/1.0.0` | 节点地址簿交换（让间接联系的成员能直连） | ✅ M2 |
-| `/fnshare/ledger/1.0.0` | 账本 gossip | ⏭ M3 |
+```bash
+git clone https://github.com/hlyylly/fnshare && cd fnshare
+docker build -t fnshare:latest .              # 编译 + 打镜像
+./scripts/test-m7-streaming.sh                # 跑 200 MiB 文件流式上传测试
+```
+
+测试脚本会拉起本地 3 节点 Docker compose，演示完整的「建群 → EC 分片 → FUSE 读」流程。
+
+## License
+
+[MIT](./LICENSE)
