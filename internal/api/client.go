@@ -9,23 +9,51 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 )
 
 // Client is a thin HTTP wrapper used by the CLI to drive a running daemon.
 type Client struct {
-	base string
-	hc   *http.Client
+	base     string
+	cliToken string
+	hc       *http.Client
 }
 
 func NewClient(addr string) *Client {
 	if addr == "" {
 		addr = "127.0.0.1:4101"
 	}
-	return &Client{
+	c := &Client{
 		base: "http://" + addr,
-		// No request timeout — file uploads/downloads are unbounded.
-		hc: &http.Client{},
+		hc:   &http.Client{},
+	}
+	// Best effort: read the daemon's CLI token so password-protected
+	// daemons accept our requests. Empty token ⇒ daemon will 401, which
+	// is the right behavior outside the container.
+	if dataDir := os.Getenv("FNSHARE_DATA"); dataDir != "" {
+		if b, err := os.ReadFile(dataDir + "/.cli-token"); err == nil {
+			c.cliToken = string(b)
+		}
+	} else {
+		// Try common places
+		for _, p := range []string{"/data/.cli-token", os.Getenv("HOME") + "/.fnshare/.cli-token"} {
+			if b, err := os.ReadFile(p); err == nil {
+				c.cliToken = string(b)
+				break
+			}
+		}
+	}
+	return c
+}
+
+// attachAuth adds the daemon-internal CLI token as X-Auth-Token so the
+// CLI bypasses the user-facing password prompt. No-op if we couldn't
+// find a token file (the daemon will then 401, which is correct behavior
+// for an external CLI without credentials).
+func (c *Client) attachAuth(r *http.Request) {
+	if c.cliToken != "" {
+		r.Header.Set("X-Auth-Token", c.cliToken)
 	}
 }
 
@@ -84,6 +112,7 @@ func (c *Client) Upload(ctx context.Context, filename string, body io.Reader, si
 		req.ContentLength = size
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
+	c.attachAuth(req)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, err
@@ -103,6 +132,7 @@ func (c *Client) Download(ctx context.Context, fileID string, w io.Writer) error
 	if err != nil {
 		return err
 	}
+	c.attachAuth(req)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return err
@@ -132,6 +162,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	c.attachAuth(req)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return err

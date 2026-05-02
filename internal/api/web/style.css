@@ -112,6 +112,28 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; margin-left:
 select { background: var(--bg); color: var(--fg); border: 1px solid var(--border);
          border-radius: 6px; padding: 4px 8px; font-family: inherit; }
 
+/* ===== auth screen ===== */
+#auth-screen {
+  position: fixed; inset: 0; display: flex; align-items: center;
+  justify-content: center; background: var(--bg);
+}
+.auth-card {
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 8px; padding: 32px; min-width: 320px; max-width: 400px;
+}
+.auth-card h1 { color: var(--accent); margin: 0 0 16px; text-align: center; }
+.auth-card form { background: transparent; border: none; padding: 0; }
+.auth-card input[type="password"] {
+  width: 100%; margin: 8px 0; padding: 10px;
+}
+.auth-card button { width: 100%; margin-top: 12px; padding: 10px; }
+
+.logout-btn {
+  margin-left: auto; padding: 4px 12px; font-size: 12px;
+  background: transparent; color: var(--fg-mute);
+}
+.logout-btn:hover { color: var(--bad); }
+
 .dual-form { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .dual-form h3 { margin: 0 0 12px; font-size: 14px; color: var(--accent); }
 @media (max-width: 720px) { .dual-form { grid-template-columns: 1fr; } }

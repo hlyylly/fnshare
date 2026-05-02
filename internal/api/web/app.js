@@ -1,3 +1,60 @@
+// ===== auth bootstrap (runs first, gates the rest) =====
+async function bootAuth() {
+  const r = await fetch('/v1/auth/state').then(r => r.json());
+  const init = document.getElementById('auth-init');
+  const login = document.getElementById('auth-login');
+  const screen = document.getElementById('auth-screen');
+  const app = document.getElementById('app');
+  if (r.state === 'no_password') {
+    screen.hidden = false; init.hidden = false; login.hidden = true;
+  } else if (r.state === 'needs_login') {
+    screen.hidden = false; login.hidden = false; init.hidden = true;
+  } else {
+    screen.hidden = true; app.hidden = false;
+    refresh();              // start the data refresh loop
+    setInterval(refresh, 5000);
+  }
+}
+
+document.getElementById('auth-init-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const pw = document.getElementById('auth-init-pw').value;
+  const pw2 = document.getElementById('auth-init-pw2').value;
+  const status = document.getElementById('auth-init-status');
+  if (pw !== pw2) { status.textContent = '✗ 两次密码不一致'; return; }
+  status.textContent = '设置中…';
+  try {
+    const r = await fetch('/v1/auth/init', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({password: pw}),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    location.reload();      // re-bootstrap, will land in "ok" state
+  } catch (err) { status.textContent = '✗ ' + err.message; }
+});
+
+document.getElementById('auth-login-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const pw = document.getElementById('auth-login-pw').value;
+  const status = document.getElementById('auth-login-status');
+  status.textContent = '验证中…';
+  try {
+    const r = await fetch('/v1/auth/login', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({password: pw}),
+    });
+    if (!r.ok) throw new Error('密码错误');
+    location.reload();
+  } catch (err) { status.textContent = '✗ ' + err.message; }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    await fetch('/v1/auth/logout', {method:'POST'});
+    location.reload();
+  });
+});
+
 // Vanilla SPA. Pulls /v1 endpoints, renders into the static markup.
 
 const fmtBytes = n => {
@@ -267,11 +324,40 @@ document.getElementById('invite-form').addEventListener('submit', async e => {
   }
 });
 
-// ---- refresh loop ----
+// ---- refresh loop ---- (started by bootAuth after successful login)
 function refresh() {
   renderOverview().catch(console.error);
   renderFiles().catch(console.error);
   renderLedger().catch(console.error);
+  renderConfig().catch(console.error);
 }
-refresh();
-setInterval(refresh, 5000);
+
+async function renderConfig() {
+  const r = await fetch('/v1/config').then(r => r.json());
+  const hostInput = document.getElementById('public-host');
+  const portInput = document.getElementById('public-port');
+  // Only set value if user isn't currently editing (avoid overwriting input).
+  if (document.activeElement !== hostInput) hostInput.value = r.public_host || '';
+  if (document.activeElement !== portInput) portInput.value = r.public_port || 4001;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const f = document.getElementById('public-host-form');
+  if (f) f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const status = document.getElementById('public-host-status');
+    status.textContent = '保存中…';
+    try {
+      const r = await fetch('/v1/config', {
+        method: 'PATCH', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          public_host: document.getElementById('public-host').value.trim(),
+          public_port: Number(document.getElementById('public-port').value) || 4001,
+        }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      status.textContent = '✓ 已保存。下次「邀请」生成时自动用这个地址';
+    } catch (err) { status.textContent = '✗ ' + err.message; }
+  });
+  bootAuth().catch(err => console.error('auth boot:', err));
+});

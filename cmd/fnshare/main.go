@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fnshare/fnshare/internal/api"
+	"github.com/fnshare/fnshare/internal/auth"
 	"github.com/fnshare/fnshare/internal/blockstore"
 	"github.com/fnshare/fnshare/internal/config"
 	"github.com/fnshare/fnshare/internal/ec"
@@ -464,9 +465,14 @@ func cmdDaemon() *cobra.Command {
 				}
 			}
 
+			authSvc, err := auth.New(s, cfg.DataDir)
+			if err != nil {
+				return err
+			}
+
 			apiSrv := api.New(api.Deps{
 				Cfg: cfg, Store: s, Identity: id, Host: n.Host,
-				Node: n, Files: fileSvc, Ledger: led, Log: logger,
+				Node: n, Files: fileSvc, Ledger: led, Auth: authSvc, Log: logger,
 			})
 			if err := apiSrv.Start(); err != nil {
 				return err

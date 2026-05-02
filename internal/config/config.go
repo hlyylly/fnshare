@@ -26,6 +26,18 @@ type Config struct {
 	// the host (飞牛影视, Plex, file managers…) can then read fnshare
 	// content like normal local files.
 	MountPath string `yaml:"mount_path,omitempty"`
+
+	// PublicHost: the DDNS hostname (or static IP) reachable from the
+	// public internet — used to auto-fill the bootstrap multiaddr in
+	// new invite links. Survives IP changes (DDNS resolves), so an
+	// invite generated today still works tomorrow when your home IP
+	// rotates. Format: bare hostname like "myhome.dyn.example.com".
+	PublicHost string `yaml:"public_host,omitempty"`
+
+	// PublicPort overrides the port advertised in the public bootstrap
+	// multiaddr. Defaults to 4001 (the libp2p listen port). Only set
+	// this if your router maps a different external port to 4001.
+	PublicPort int `yaml:"public_port,omitempty"`
 }
 
 func Default(dataDir string) Config {

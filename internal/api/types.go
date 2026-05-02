@@ -74,3 +74,30 @@ type GroupCreateRequest struct {
 type GroupJoinRequest struct {
 	InviteLink string `json:"invite_link"`
 }
+
+// AuthState reports the daemon's authentication posture so the UI knows
+// whether to show the "set password" panel, the "log in" panel, or the
+// main app.
+type AuthState struct {
+	State string `json:"state"` // "no_password" | "needs_login" | "ok"
+}
+
+type AuthRequest struct {
+	Password string `json:"password"`
+}
+
+type AuthResponse struct {
+	OK    bool   `json:"ok"`
+	Token string `json:"token,omitempty"`
+}
+
+// ConfigPublic is the subset of daemon config exposed via /v1/config —
+// PublicHost is what the user can edit from the UI to make their invite
+// links survive IP changes (the daemon constructs /dns4/<host>/...
+// bootstraps automatically).
+type ConfigPublic struct {
+	Nickname     string `json:"nickname"`
+	PublicHost   string `json:"public_host"`
+	PublicPort   int    `json:"public_port"`
+	ContributedB int64  `json:"contributed_bytes"`
+}

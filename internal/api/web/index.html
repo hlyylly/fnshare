@@ -7,6 +7,34 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
+  <!-- ===== Auth gate (shown until logged in) ===== -->
+  <div id="auth-screen" hidden>
+    <div class="auth-card">
+      <h1>fnshare</h1>
+
+      <div id="auth-init" hidden>
+        <p class="muted">首次运行 — 给这台机器设一个密码</p>
+        <form id="auth-init-form">
+          <input type="password" id="auth-init-pw" placeholder="设置密码（至少 6 位）" minlength="6" required />
+          <input type="password" id="auth-init-pw2" placeholder="再输一次确认" minlength="6" required />
+          <button type="submit">设置密码并进入</button>
+          <span id="auth-init-status" class="muted"></span>
+        </form>
+      </div>
+
+      <div id="auth-login" hidden>
+        <p class="muted">登录 fnshare 控制台</p>
+        <form id="auth-login-form">
+          <input type="password" id="auth-login-pw" placeholder="密码" required autofocus />
+          <button type="submit">登录</button>
+          <span id="auth-login-status" class="muted"></span>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Main app (shown after login) ===== -->
+  <div id="app" hidden>
   <header>
     <h1>fnshare</h1>
     <nav>
@@ -15,6 +43,7 @@
       <a href="#ledger"   data-tab="ledger">账本</a>
       <a href="#invite"   data-tab="invite">邀请</a>
     </nav>
+    <button id="logout-btn" title="退出登录" class="logout-btn">退出</button>
   </header>
 
   <main>
@@ -30,6 +59,24 @@
 
       <h2>我加入的群组 <span class="muted">(可同时是多个群的群主或成员)</span></h2>
       <div id="groups-list"></div>
+
+      <h2>我的对外地址 <span class="muted">(DDNS / 公网域名 — 让邀请链接 IP 变化也不失效)</span></h2>
+      <form id="public-host-form">
+        <label class="inline">
+          域名或 IP：
+          <input type="text" id="public-host" placeholder="myhome.dyn.example.com 或 1.2.3.4" />
+        </label>
+        <label class="inline">
+          公网端口：
+          <input type="number" id="public-port" placeholder="4001" min="1" max="65535" style="width:90px" />
+        </label>
+        <button type="submit">保存</button>
+        <span id="public-host-status" class="muted"></span>
+      </form>
+      <p class="muted" style="margin-top:8px;font-size:12px">
+        设置后，「邀请」页生成邀请时会自动填 <code>/dns4/&lt;域名&gt;/tcp/&lt;端口&gt;/...</code>，
+        即使你家公网 IP 变化，朋友的链接仍然有效（DNS 在使用时解析）。
+      </p>
 
       <h2>建群 / 入群</h2>
       <div class="dual-form">
@@ -120,8 +167,9 @@
   </main>
 
   <footer>
-    <span class="muted">fnshare M4 · 多群组 · 端到端加密 · 数据每 5s 自动刷新</span>
+    <span class="muted">fnshare · 多群组 · 端到端加密 · 数据每 5s 自动刷新</span>
   </footer>
+  </div><!-- /#app -->
 
   <script src="/app.js"></script>
 </body>
